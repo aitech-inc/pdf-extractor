@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf-extractor"
+version = "0.1.0"
+description = "PDFから情報を抽出するための共通ライブラリ"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "pypdf>=3.0.0",  # 実際に使うライブラリ（例）をここに書く
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
