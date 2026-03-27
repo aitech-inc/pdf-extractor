@@ -1,7 +1,13 @@
 import io
 import pdfplumber
 import numpy as np
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Literal
+
+"""
+pdfから直接抽出する系の処理
+・get_lines_from_pdf
+・get_images_from_pdf
+"""
 
 
 def get_lines_from_pdf(
@@ -20,10 +26,13 @@ def get_lines_from_pdf(
     results = {}
 
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        total_pages = len(pdf.pages)
         # 指定がなければ全ページ、指定があればそのページのみ対象にする
-        target_pages = page_numbers if page_numbers is not None else range(len(pdf.pages))
+        target_pages = page_numbers if page_numbers is not None else range(total_pages)
 
         for p_idx in target_pages:
+            if p_idx >= total_pages:
+                continue
             page = pdf.pages[p_idx]
             lines = page.objects.get("line", [])
             curves = page.objects.get("curve", [])
@@ -48,6 +57,7 @@ def _get_edge(lines, curves, dpi):
 
     return np.concatenate([l_arr, c_arr], axis=0)
 
+
 def _get_lines(raw_lines, dpi):
     lines = np.empty((len(raw_lines), 4))
     scale = dpi / 72
@@ -58,6 +68,7 @@ def _get_lines(raw_lines, dpi):
         lines[i] = [x0, y0, x1, y1]
     return lines
 
+
 def _get_curve_edge_lines(raw_curve_edge_lines, dpi):
     scale = dpi / 72
     curve_edge_lines = []
@@ -65,8 +76,40 @@ def _get_curve_edge_lines(raw_curve_edge_lines, dpi):
         pts = line['pts']
         for i in range(len(pts) - 1):
             x0, y0 = pts[i]
-            x1, y1 = pts[i+1]
+            x1, y1 = pts[i + 1]
             x0, y0 = x0 * scale, y0 * scale
             x1, y1 = x1 * scale, y1 * scale
             curve_edge_lines.append([x0, y0, x1, y1])
     return np.array(curve_edge_lines)
+
+
+def get_images_from_pdf(
+    pdf_bytes: bytes,
+    dpi: int = 400,
+    page_numbers: Optional[List[int]] = None,
+    mode: Literal["RGB", "L"] = "RGB"  # "RGB"はカラー、"L"はグレースケール
+) -> Dict[int, np.ndarray]:
+    results = {}
+
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        total_pages = len(pdf.pages)
+        target_pages = page_numbers if page_numbers is not None else range(total_pages)
+
+        for p_idx in target_pages:
+            if p_idx >= total_pages:
+                continue
+
+            page = pdf.pages[p_idx]
+
+            pil_img = page.to_image(resolution=dpi).original
+
+            # モード変換（"L" を指定するとグレースケールに変換される）
+            if pil_img.mode != mode:
+                pil_img = pil_img.convert(mode)
+
+            # numpy配列に変換
+            im_np = np.array(pil_img)
+            results[p_idx] = im_np
+
+    return results
+
