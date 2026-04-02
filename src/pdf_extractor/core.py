@@ -1,5 +1,5 @@
 import io
-import pdfplumber
+import pdfplumber, fitz
 import numpy as np
 from typing import Optional, List, Dict, Literal
 
@@ -113,3 +113,47 @@ def get_images_from_pdf(
 
     return results
 
+
+def get_text_from_pdf(
+    pdf_bytes: bytes,
+    dpi: int = 400,
+    page_numbers: Optional[List[int]] = None
+) -> Dict[int, List[dict]]:
+    """
+    PDFからテキスト情報（座標付き）を抽出します。
+    """
+    scale = dpi / 72
+    results = {}
+
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        # 指定がなければ全ページ、あればそのページのみ対象
+        target_pages = page_numbers if page_numbers is not None else range(len(doc))
+
+        for p_idx in target_pages:
+            if p_idx >= len(doc):
+                continue
+
+            page = doc[p_idx]
+            rect = page.rect
+            width = rect.width
+            words = page.get_text("words")  # (x0, y0, x1, y1, "word", block_no, line_no, word_no)
+
+            page_text_infos = []
+            for w in words:
+                # 元のコードの計算式を維持（座標変換ロジック）
+                x0 = (width - w[3]) * scale
+                x1 = (width - w[1]) * scale
+                y0 = w[0] * scale
+                y1 = w[2] * scale
+
+                page_text_infos.append({
+                    'x0': x0, 'y0': y0,
+                    'x1': x1, 'y1': y1,
+                    "cx": (float(x0) + float(x1)) / 2,
+                    "cy": (float(y0) + float(y1)) / 2,
+                    "text": str(w[4]),
+                })
+
+            results[p_idx] = page_text_infos
+
+    return results
