@@ -45,24 +45,31 @@ def remove_short_lines(lines: np.ndarray, min_length: float) -> np.ndarray:
     return lines[mask]
 
 def extract_axis_aligned_lines(lines: np.ndarray, tol: float = 1e-6):
-    """
-    lines: shape (N, 4) -> [x0, y0, x1, y1]
-    tol: 許容誤差
-
-    return:
-        horizontal_lines: 水平線
-        vertical_lines: 垂直線
-    """
     x0 = lines[:, 0]
     y0 = lines[:, 1]
     x1 = lines[:, 2]
     y1 = lines[:, 3]
 
-    # 条件
     vertical_mask = np.abs(x0 - x1) < tol
     horizontal_mask = np.abs(y0 - y1) < tol
 
-    vertical_lines = lines[vertical_mask]
-    horizontal_lines = lines[horizontal_mask]
+    vertical_raw = lines[vertical_mask]
+    horizontal_raw = lines[horizontal_mask]
+
+    # --- 垂直線の正規化 ---
+    vertical_lines = []
+    for x0, y0, x1, y1 in vertical_raw:
+        x = (x0 + x1) / 2
+        if y0 > y1:
+            y0, y1 = y1, y0
+        vertical_lines.append((x, y0, y1))
+
+    # --- 水平線の正規化 ---
+    horizontal_lines = []
+    for x0, y0, x1, y1 in horizontal_raw:
+        y = (y0 + y1) / 2
+        if x0 > x1:
+            x0, x1 = x1, x0
+        horizontal_lines.append((y, x0, x1))
 
     return horizontal_lines, vertical_lines
