@@ -35,27 +35,28 @@ def get_lines_from_pdf(
                 continue
             page = pdf.pages[p_idx]
             lines = page.objects.get("line", [])
+            rects = page.objects.get("rect", [])
             curves = page.objects.get("curve", [])
 
             # 線分と曲線エッジを統合
-            all_edges = _get_edge(lines, curves, dpi)
+            all_edges = _get_edge(lines, rects, curves, dpi)
             results[p_idx] = all_edges
 
     return results
 
 
-def _get_edge(lines, curves, dpi):
+def _get_edge(lines, rects, curves, dpi):
     # numpyの空配列処理を考慮して、中身がない場合のハンドリングを入れるとより安全
     l_arr = _get_lines(lines, dpi)
+    r_arr = _get_rect_edge_lines(rects, dpi)
     c_arr = _get_curve_edge_lines(curves, dpi)
 
-    # どちらかが空でも動くように concatenate する
-    if len(l_arr) == 0 and len(c_arr) == 0:
-        return np.empty((0, 4))
-    if len(l_arr) == 0: return c_arr
-    if len(c_arr) == 0: return l_arr
+    arrays = [arr for arr in (l_arr, r_arr, c_arr) if len(arr) > 0]
 
-    return np.concatenate([l_arr, c_arr], axis=0)
+    if not arrays:
+        return np.empty((0, 4))
+
+    return np.concatenate(arrays, axis=0)
 
 
 def _get_lines(raw_lines, dpi):
@@ -67,6 +68,23 @@ def _get_lines(raw_lines, dpi):
         x1, y1 = x1 * scale, y1 * scale
         lines[i] = [x0, y0, x1, y1]
     return lines
+
+def _get_rect_edge_lines(raw_rects, dpi):
+    """
+    pts [(220.7999955, 123.96000225), (226.44000975, 123.96000225), (226.44000975, 171.24000824999996), (220.7999955, 171.24000824999996)]
+    """
+    scale = dpi / 72
+    rect_edge_lines = []
+    for rect in raw_rects:
+        pts = rect['pts']
+        N = len(pts)
+        for i in range(N):
+            x0, y0 = pts[i]
+            x1, y1 = pts[(i + 1) % N]  # 最後の点は最初の点とつなげる
+            x0, y0 = x0 * scale, y0 * scale
+            x1, y1 = x1 * scale, y1 * scale
+            rect_edge_lines.append([x0, y0, x1, y1])
+    return np.array(rect_edge_lines)
 
 
 def _get_curve_edge_lines(raw_curve_edge_lines, dpi):
