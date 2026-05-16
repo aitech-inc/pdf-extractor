@@ -13,7 +13,9 @@ pdfから直接抽出する系の処理
 def get_lines_from_pdf(
     pdf_bytes: bytes,
     dpi: int = 400,
-    page_numbers: Optional[List[int]] = None
+    page_numbers: Optional[List[int]] = None,
+    axis_aligned_only: bool = False,
+    min_length: Optional[float] = None
 ) -> Dict[int, np.ndarray]:
     """
     PDFから線分情報を取得する。
@@ -21,6 +23,8 @@ def get_lines_from_pdf(
     :param pdf_bytes: PDFファイルの中身（バイト列）
     :param dpi: 解析時の解像度
     :param page_numbers: 抽出したいページのリスト（例: [0, 1]）。Noneの場合は全ページ。
+    :param axis_aligned_only: Trueの場合、水平・垂直線のみ抽出する
+    :param min_length: 指定した長さ未満の線分を除外する。Noneの場合は除外しない。
     :return: ページ番号をキー、線分座標 [x0, y0, x1, y1] の numpy配列を値とした辞書
     """
     results = {}
@@ -39,40 +43,56 @@ def get_lines_from_pdf(
             curves = page.objects.get("curve", [])
 
             # 線分と曲線エッジを統合
-            all_edges = _get_edge(lines, rects, curves, dpi)
+            all_edges = _get_edge(
+                lines,
+                rects,
+                curves,
+                dpi,
+                axis_aligned_only,
+                min_length
+            )
             results[p_idx] = all_edges
 
     return results
 
 
-def _get_edge(lines, rects, curves, dpi):
-    # numpyの空配列処理を考慮して、中身がない場合のハンドリングを入れるとより安全
-    l_arr = _get_lines(lines, dpi)
-    r_arr = _get_rect_edge_lines(rects, dpi)
-    c_arr = _get_curve_edge_lines(curves, dpi)
+def _get_edge(lines, rects, curves, dpi, axis_aligned_only, min_length):
+    l_arr = _get_lines(lines, dpi, axis_aligned_only, min_length)
+    r_arr = _get_rect_edge_lines(rects, dpi, axis_aligned_only, min_length)
+    c_arr = _get_curve_edge_lines(curves, dpi, axis_aligned_only, min_length)
 
     arrays = [arr for arr in (l_arr, r_arr, c_arr) if len(arr) > 0]
 
     if not arrays:
-        return np.empty((0, 4))
+        return np.empty((0, 4), dtype=np.float32)
 
     return np.concatenate(arrays, axis=0)
 
 
-def _get_lines(raw_lines, dpi):
-    lines = np.empty((len(raw_lines), 4))
+def _get_lines(raw_lines, dpi, axis_aligned_only, min_length):
     scale = dpi / 72
-    for i, line in enumerate(raw_lines):
-        (x0, y0), (x1, y1) = line['pts']
+    lines = []
+
+    for line in raw_lines:
+        (x0, y0), (x1, y1) = line["pts"]
+
         x0, y0 = x0 * scale, y0 * scale
         x1, y1 = x1 * scale, y1 * scale
-        lines[i] = [x0, y0, x1, y1]
-    return lines
 
-def _get_rect_edge_lines(raw_rects, dpi):
-    """
-    pts [(220.7999955, 123.96000225), (226.44000975, 123.96000225), (226.44000975, 171.24000824999996), (220.7999955, 171.24000824999996)]
-    """
+        if _line_filter(
+            x0, y0, x1, y1,
+            axis_aligned_only=axis_aligned_only,
+            min_length=min_length,
+        ):
+            lines.append([x0, y0, x1, y1])
+
+    if not lines:
+        return np.empty((0, 4), dtype=np.float32)
+
+    return np.asarray(lines, dtype=np.float32)
+
+
+def _get_rect_edge_lines(raw_rects, dpi, axis_aligned_only, min_length):
     scale = dpi / 72
     rect_edge_lines = []
     for rect in raw_rects:
@@ -83,22 +103,61 @@ def _get_rect_edge_lines(raw_rects, dpi):
             x1, y1 = pts[(i + 1) % N]  # 最後の点は最初の点とつなげる
             x0, y0 = x0 * scale, y0 * scale
             x1, y1 = x1 * scale, y1 * scale
-            rect_edge_lines.append([x0, y0, x1, y1])
-    return np.array(rect_edge_lines)
+            if _line_filter(
+                x0, y0, x1, y1,
+                axis_aligned_only=axis_aligned_only,
+                min_length=min_length
+            ):
+                rect_edge_lines.append([x0, y0, x1, y1])
+
+    if not rect_edge_lines:
+        return np.empty((0, 4), dtype=np.float32)
+
+    return np.asarray(rect_edge_lines, dtype=np.float32)
 
 
-def _get_curve_edge_lines(raw_curve_edge_lines, dpi):
+def _get_curve_edge_lines(raw_curve_edge_lines, dpi, axis_aligned_only, min_length):
     scale = dpi / 72
     curve_edge_lines = []
-    for i, line in enumerate(raw_curve_edge_lines):
+    for line in raw_curve_edge_lines:
         pts = line['pts']
         for i in range(len(pts) - 1):
             x0, y0 = pts[i]
             x1, y1 = pts[i + 1]
             x0, y0 = x0 * scale, y0 * scale
             x1, y1 = x1 * scale, y1 * scale
-            curve_edge_lines.append([x0, y0, x1, y1])
-    return np.array(curve_edge_lines)
+            if _line_filter(
+                x0, y0, x1, y1,
+                axis_aligned_only=axis_aligned_only,
+                min_length=min_length
+            ):
+                curve_edge_lines.append([x0, y0, x1, y1])
+
+    if not curve_edge_lines:
+        return np.empty((0, 4), dtype=np.float32)
+
+    return np.asarray(curve_edge_lines, dtype=np.float32)
+
+
+def _line_filter(
+    x0, y0, x1, y1,
+    axis_aligned_only=False,
+    min_length=None,
+    axis_eps: float = 1e-3
+):
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    length = max(dx, dy)
+
+    if min_length is not None and length < min_length:
+        return False
+
+    if axis_aligned_only:
+        is_axis = (dx <= axis_eps) or (dy <= axis_eps)
+        if not is_axis:
+            return False
+
+    return True
 
 
 def get_images_from_pdf(
