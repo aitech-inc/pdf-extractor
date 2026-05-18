@@ -14,12 +14,16 @@ pip install git+https://github.com/aitech-inc/pdf-extractor.git
 ```
 最新のコミットを反映させたいとき
 ```bash
-pip install --upgrade --force-reinstall git+https://github.com/aitech-inc/pdf-extractor.git
+pip install --upgrade "git+https://github.com/aitech-inc/pdf-extractor.git@v0.1.6"
 ```
 
 ### uv の場合
 ```bash
 uv add git+https://github.com/aitech-inc/pdf-extractor.git
+```
+最新のコミットを反映させたいとき（v0.1.6が最新）
+```
+uv add "pdf-extractor @ git+https://github.com/aitech-inc/pdf-extractor.git@v0.1.6"
 ```
 
 ## 使い方
