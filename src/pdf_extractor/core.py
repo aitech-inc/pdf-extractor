@@ -275,3 +275,8 @@ def _rotate_bbox(x0, y0, x1, y1, page_width, page_height, rotation):
         )
 
     return x0, y0, x1, y1
+
+def get_pdfbytes(pdf_path):
+    with open(pdf_path, 'rb') as f:
+        pdf_bytes = f.read()
+    return pdf_bytes
